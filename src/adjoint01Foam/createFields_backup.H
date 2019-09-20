@@ -105,6 +105,23 @@ autoPtr<incompressible::turbulenceModel> turbulence
 );
 
 
+dimensionedScalar zeroSensitivity(dimVelocity*dimVelocity, Zero);
+dimensionedScalar zeroAlpha(dimless/dimTime, Zero);
+
+dimensionedScalar lambda
+(
+    "lambda",
+    dimTime/sqr(dimLength),
+    laminarTransport
+);
+
+dimensionedScalar alphaMax
+(
+    "alphaMax",
+    dimless/dimTime,
+    laminarTransport
+);
+
 const labelList& inletCells = mesh.boundary()["inlet"].faceCells();
 //const labelList& outletCells = mesh.boundary()["outlet"].faceCells();
 
@@ -115,59 +132,12 @@ volScalarField alpha
         "alpha",
         runTime.timeName(),
         mesh,
-        IOobject::MUST_READ,
+        IOobject::READ_IF_PRESENT,
         IOobject::AUTO_WRITE
     ),
-    mesh //lambda*max(Ua & U, zeroSensitivity)
+    lambda*max(Ua & U, zeroSensitivity)
 );
-
-scalarField volField = mesh.V();
 zeroCells(alpha, inletCells);
 //zeroCells(alpha, outletCells);
 
 #include "createFvOptions.H"
-
-volScalarField alphaMax
-(
-    IOobject
-    (
-	"alphaMax",
-	runTime.constant(),
-	mesh,
-	IOobject::MUST_READ,
-	IOobject::NO_WRITE
-    ),
-    mesh
-);
-
-
-volScalarField alphaMin
-(
-    IOobject
-    (
-	"alphaMin",
-	runTime.constant(),
-	mesh,
-	IOobject::MUST_READ,
-	IOobject::NO_WRITE
-    ),
-    mesh
-);
-
-
-
-volScalarField alphak
-(
-    IOobject
-    (
-	"alphak",
-	runTime.timeName(),
-	mesh,
-	IOobject::NO_READ,
-	IOobject::NO_WRITE
-    ),
-    alpha
-);
-
-
-

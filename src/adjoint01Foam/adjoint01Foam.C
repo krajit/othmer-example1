@@ -1,51 +1,25 @@
 /*---------------------------------------------------------------------------*\
   =========                 |
-  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
-   \\    /   O peration     |
-    \\  /    A nd           | Copyright (C) 2011-2017 OpenFOAM Foundation
-     \\/     M anipulation  |
--------------------------------------------------------------------------------
-License
-    This file is part of OpenFOAM.
-
-    OpenFOAM is free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    OpenFOAM is distributed in the hope that it will be useful, but WITHOUT
-    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-    FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-    for more details.
+  \\      /  F ield                | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O perati       on     |
+    \\  /    A nd                  | Copyright (C) 2011-2017 OpenFOAM Foundation
+     \\/     M anipul       ation  |
+---------------------       ----------------------------------------------------------
+License       
+    This file is part        of OpenFOAM.
+       
+    OpenFOAM is free        software: you can redistribute it and/or modify it
+    under the terms o       f the GNU General Public License as published by
+    the Free Software        Foundation, either version 3 of the License, or
+    (at your option)        any later version.
+       
+    OpenFOAM is distr       ibuted in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; wit       hout even the implied warranty of MERCHANTABILITY or
+    FITNESS FOR A PAR       TICULAR PURPOSE.  See the GNU General Public License
+    for more details.       
 
     You should have received a copy of the GNU General Public License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
-
-Application
-    ajointShapeOptimizationFoam
-
-Group
-    grpIncompressibleSolvers
-
-Description
-    Steady-state solver for incompressible, turbulent flow of non-Newtonian
-    fluids with optimisation of duct shape by applying "blockage" in regions
-    causing pressure loss as estimated using an adjoint formulation.
-
-    References:
-    \verbatim
-        "Implementation of a continuous adjoint for topology optimization of
-         ducted flows"
-        C. Othmer,
-        E. de Villiers,
-        H.G. Weller
-        AIAA-2007-3947
-        http://pdf.aiaa.org/preview/CDReadyMCFD07_1379/PV2007_3947.pdf
-    \endverbatim
-
-    Note that this solver optimises for total pressure loss whereas the
-    above paper describes the method for optimising power-loss.
-
 \*---------------------------------------------------------------------------*/
 
 #include "fvCFD.H"
@@ -54,12 +28,10 @@ Description
 #include "simpleControl.H"
 #include "fvOptions.H"
 
-template<class Type>
-void zeroCells
-(
-    GeometricField<Type, fvPatchField, volMesh>& vf,
-    const labelList& cells
-)
+template <class Type>
+void zeroCells(
+    GeometricField<Type, fvPatchField, volMesh> &vf,
+    const labelList &cells)
 {
     forAll(cells, i)
     {
@@ -67,55 +39,105 @@ void zeroCells
     }
 }
 
-
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 int main(int argc, char *argv[])
 {
-    #include "postProcess.H"
+#include "postProcess.H"
 
-    #include "addCheckCaseOptions.H"
-    #include "setRootCase.H"
-    #include "createTime.H"
-    #include "createMesh.H"
-    #include "createControl.H"
-    #include "createFields.H"
-    #include "initContinuityErrs.H"
-    #include "initAdjointContinuityErrs.H"
+#include "addCheckCaseOptions.H"
+#include "setRootCase.H"
+#include "createTime.H"
+#include "createMesh.H"
+#include "createControl.H"
+#include "createFields.H"
+#include "initContinuityErrs.H"
+#include "initAdjointContinuityErrs.H"
 
     turbulence->validate();
 
     // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-    Info<< "\nStarting time loop\n" << endl;
+    // Cost function value
+    scalar J = 0;
+    scalar Jold = 0;
+    scalar Jk = 0;
 
-    while (simple.loop())
+    // Compute cost function value
+#include "costFunctionValue.H"
+
+    std::ofstream file("results.csv");
+    file << 0 << "," << J << nl;
+    file.close();
+
+    Info << "\nStarting time loop\n"
+         << endl;
+
+    while (simple.loop() && (fabs(J - Jold) > tol) && (gamma > tol))
     {
-        Info<< "Time = " << runTime.timeName() << nl << endl;
+        Info << "Time = " << runTime.timeName() << nl << endl;
 
-        //alpha +=
-        //    mesh.relaxationFactor("alpha")
-        //   *(lambda*max(Ua & U, zeroSensitivity) - alpha);
-        alpha +=
-            mesh.fieldRelaxationFactor("alpha")
-           *(min(max(alpha - lambda*(Ua & U), zeroAlpha), alphaMax) - alpha);
+        // save old cost value
+        Jold = J;
 
-        zeroCells(alpha, inletCells);
-        //zeroCells(alpha, outletCells);
-        
-        #include "stateEquation.H"
+#include "stateEquation.H"
+#include "adjointEquation.H"
 
-        #include "adjointEquation.H"
+        // Save current control
+        alphak = alpha;
+
+// calculate current cost
+#include "costFunctionValue.H"
+        Jk = J;
+
+        bool gammaFound = false;
+
+        // calculate derivative^2 integrate(U . Ua dv). Why??
+        scalar phip0 = gSum(volField * (Ua.internalField() & U.internalField()));
+
+        while ((!gammaFound) && (gamma > tol))
+        {
+            alpha = alpha - gamma * (Ua & U);
+
+            // truncate u for constrained control set
+            forAll(alpha, i)
+            {
+                alpha[i] = min(alpha[i], alphaMax[i]);
+                alpha[i] = max(alpha[i], alphaMin[i]);
+            }
+            alpha.correctBoundaryConditions();
+
+            // get new u
+            #include "adjointEquation.H"
+            // get new cost
+            #include "costFunctionValue.H"
+
+            // backtracking step to find alpha
+            if (J <= Jk - c1 * gamma * phip0)
+            {
+                Info << "gamma found, gamma = " << gamma << ", J = " << J << ", phip0" << phip0 << endl;
+                gammaFound = true;
+            }
+            else
+            {
+                Info << "gamma NOT found, gamma = " << gamma << ", J = " << J << ", phip0" << phip0 << endl;
+                gamma = c2 * gamma;
+            }
+        }
+
+        file.open("results.csv", std::ios::app);
+        file << runTime.value() << "," << J << nl;
+        file.close();
 
         runTime.write();
 
         runTime.printExecutionTime(Info);
     }
 
-    Info<< "End\n" << endl;
+    Info << "End\n"
+         << endl;
 
     return 0;
 }
-
 
 // ************************************************************************* //

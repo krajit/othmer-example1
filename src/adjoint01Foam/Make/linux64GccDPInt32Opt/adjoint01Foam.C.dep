@@ -818,6 +818,7 @@ createPhia.H \
 $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/createFvOptions.H \
 $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/initContinuityErrs.H \
 initAdjointContinuityErrs.H \
+costFunctionValue.H \
 stateEquation.H \
 $(WM_PROJECT_DIR)/src/finiteVolume/lnInclude/continuityErrs.H \
 adjointEquation.H \
