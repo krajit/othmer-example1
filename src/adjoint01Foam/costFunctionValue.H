@@ -7,7 +7,7 @@ forAll(mesh.boundary(), patchi)
     if (!p.boundaryField()[patchi].empty())
     {
         J -= gSum(
-            (p.boundaryField()[patchi] + pow(mag(U.boundaryField()[patchi]),2) )
+            (p.boundaryField()[patchi] + 0.5*pow(mag(U.boundaryField()[patchi]),2) )
             *( U.boundaryField()[patchi] & mesh.Sf().boundaryField()[patchi])
         );
     }

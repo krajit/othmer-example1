@@ -73,15 +73,24 @@ int main(int argc, char *argv[])
     Info << "\nStarting time loop\n"
          << endl;
 
-    while (simple.loop() && (fabs(J - Jold) > tol) && (gamma > tol))
+    while (simple.loop() && (fabs(J - Jold)/(fabs(Jold)+SMALL) > 0.01) && (gamma > tol))
     {
         Info << "Time = " << runTime.timeName() << nl << endl;
 
         // save old cost value
         Jold = J;
 
-#include "stateEquation.H"
-#include "adjointEquation.H"
+        for (int kk = 0; kk < 100; kk++)
+        {
+            p.storePrevIter();
+            #include "stateEquation.H"
+            #include "adjointEquation.H"
+            scalar contError = gSum(Foam::pow(p - p.prevIter(), 2) * volField) / (gSum(Foam::pow(p.prevIter(), 2) * volField) + SMALL);
+            if (contError < 0.001)
+            {
+                break;
+            }
+        }
 
         // Save current control
         alphak = alpha;
@@ -93,11 +102,38 @@ int main(int argc, char *argv[])
         bool gammaFound = false;
 
         // calculate derivative^2 integrate(U . Ua dv). Why??
-        scalar phip0 = gSum(volField * (Ua.internalField() & U.internalField()));
+        scalar phip0 = gSum(volField *
+                            Foam::pow(Ua.internalField() & U.internalField(), 2));
+        //scalar phip0 = 0;
+
+        // // integrate in the boundary patches
+        // forAll(patchesToIntegrate, i)
+        // {
+        //     label patchi = mesh.boundaryMesh().findPatchID(patchesToIntegrate[i]);
+        //     //phi0 += 0.5 * lambda.value() * gSum(mesh.magSf().boundaryField()[patchi] * Foam::pow(u.boundaryField()[patchi], 2));
+        //     phip0 += gSum(
+        //         mesh.magSf().boundaryField()[patchi] *
+        //         Foam::pow(lambda * u.boundaryField()[patchi] + beta * p.boundaryField()[patchi], 2));
+        // }
+
+        // integrate in the boundary patches
+        // forAll(mesh.boundary(), patchi)
+        // {
+        //     // only over non-empty patches
+        //     if (!p.boundaryField()[patchi].empty())
+        //     {
+        //         phip0 += gSum(
+        //             mesh.magSf().boundaryField()[patchi] *
+        //         Foam::pow(Ua.boundaryField()[patchi] & U.boundaryField()[patchi], 2)
+        //             );
+        //     }
+        // }
+
+        dimensionedScalar gd = dimensionedScalar("gd", dimless * dimTime / sqr(dimLength), 1.0);
 
         while ((!gammaFound) && (gamma > tol))
         {
-            alpha = alpha - gamma * (Ua & U);
+            alpha = alpha - gamma * gd * (Ua & U);
 
             // truncate u for constrained control set
             forAll(alpha, i)
@@ -108,9 +144,19 @@ int main(int argc, char *argv[])
             alpha.correctBoundaryConditions();
 
             // get new u
-            #include "adjointEquation.H"
-            // get new cost
-            #include "costFunctionValue.H"
+        for (int kk = 0; kk < 100; kk++)
+        {
+            p.storePrevIter();
+            #include "stateEquation.H"
+            scalar contError = gSum(Foam::pow(p - p.prevIter(), 2) * volField) / (gSum(Foam::pow(p.prevIter(), 2) * volField) + SMALL);
+            if (contError < 0.001)
+            {
+                break;
+            }
+        }
+
+// get new cost
+#include "costFunctionValue.H"
 
             // backtracking step to find alpha
             if (J <= Jk - c1 * gamma * phip0)
