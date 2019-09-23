@@ -73,19 +73,24 @@ int main(int argc, char *argv[])
     Info << "\nStarting time loop\n"
          << endl;
 
-    while (simple.loop() && (fabs(J - Jold)/(fabs(Jold)+SMALL) > 0.01) && (gamma > tol))
+         scalar changeInControl = 10.0;
+
+    while (simple.loop() && (changeInControl> 1E-6))// && (gamma > tol))
     {
         Info << "Time = " << runTime.timeName() << nl << endl;
+
+        alpha.storePrevIter();
 
         // save old cost value
         Jold = J;
 
         for (int kk = 0; kk < 100; kk++)
         {
-            p.storePrevIter();
+            U.storePrevIter();
             #include "stateEquation.H"
             #include "adjointEquation.H"
-            scalar contError = gSum(Foam::pow(p - p.prevIter(), 2) * volField) / (gSum(Foam::pow(p.prevIter(), 2) * volField) + SMALL);
+//            scalar contError = gSum(Foam::pow(p - p.prevIter(), 2) * volField) / (gSum(Foam::pow(p.prevIter(), 2) * volField) + SMALL);
+            scalar contError = gSum(Foam::pow(mag(U - U.prevIter()), 2) * volField) / (gSum(Foam::pow(mag(U.prevIter()), 2) * volField) + SMALL);
             if (contError < 0.001)
             {
                 break;
@@ -146,9 +151,10 @@ int main(int argc, char *argv[])
             // get new u
         for (int kk = 0; kk < 100; kk++)
         {
-            p.storePrevIter();
+            U.storePrevIter();
             #include "stateEquation.H"
-            scalar contError = gSum(Foam::pow(p - p.prevIter(), 2) * volField) / (gSum(Foam::pow(p.prevIter(), 2) * volField) + SMALL);
+            //scalar contError = gSum(Foam::pow(p - p.prevIter(), 2) * volField) / (gSum(Foam::pow(p.prevIter(), 2) * volField) + SMALL);
+            scalar contError = gSum(Foam::pow(mag(U - U.prevIter()), 2) * volField) / (gSum(Foam::pow(mag(U.prevIter()), 2) * volField) + SMALL);
             if (contError < 0.001)
             {
                 break;
@@ -178,6 +184,9 @@ int main(int argc, char *argv[])
         runTime.write();
 
         runTime.printExecutionTime(Info);
+
+        changeInControl = gSum(Foam::pow(mag(alpha - alphak), 1) * volField) / (gSum(Foam::pow(mag(alphak), 1) * volField) + SMALL);
+        Info << "change in control = " << changeInControl << endl;
     }
 
     Info << "End\n"
